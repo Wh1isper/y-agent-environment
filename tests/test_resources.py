@@ -3,6 +3,7 @@
 import pytest
 
 from agent_environment import (
+    BaseResource,
     Environment,
     Resource,
     ResourceEntry,
@@ -422,6 +423,86 @@ async def test_registry_context_instructions_xml_format() -> None:
         assert "Instruction 1" in result
 
 
+# --- get_toolsets Tests ---
+
+
+async def test_base_resource_default_get_toolsets() -> None:
+    """BaseResource should return empty list by default."""
+    resource = MinimalBaseResource()
+    toolsets = await resource.get_toolsets()
+    assert toolsets == []
+
+
+async def test_registry_get_toolsets_empty() -> None:
+    """Registry should return empty list when no resources."""
+    async with MockEnvironment() as env:
+        toolsets = await env.resources.get_toolsets()
+        assert toolsets == []
+
+
+async def test_registry_get_toolsets_collects_from_resources() -> None:
+    """Registry should collect toolsets from all resources."""
+
+    class ResourceWithToolset(BaseResource):
+        def __init__(self, toolset: object) -> None:
+            self._toolset = toolset
+
+        async def close(self) -> None:
+            pass
+
+        async def get_toolsets(self) -> list:
+            return [self._toolset]
+
+    async with MockEnvironment() as env:
+        toolset1 = object()
+        toolset2 = object()
+
+        async def create_r1(e: Environment) -> ResourceWithToolset:
+            return ResourceWithToolset(toolset1)
+
+        async def create_r2(e: Environment) -> ResourceWithToolset:
+            return ResourceWithToolset(toolset2)
+
+        env.resources.register_factory("r1", create_r1)
+        env.resources.register_factory("r2", create_r2)
+        await env.resources.get_or_create("r1")
+        await env.resources.get_or_create("r2")
+
+        toolsets = await env.resources.get_toolsets()
+        assert len(toolsets) == 2
+        assert toolset1 in toolsets
+        assert toolset2 in toolsets
+
+
+async def test_registry_get_toolsets_with_multiple_toolsets() -> None:
+    """Resource can return multiple toolsets."""
+
+    class MultiToolsetResource(BaseResource):
+        def __init__(self, toolsets: list) -> None:
+            self._toolsets = toolsets
+
+        async def close(self) -> None:
+            pass
+
+        async def get_toolsets(self) -> list:
+            return self._toolsets
+
+    async with MockEnvironment() as env:
+        toolset_a = object()
+        toolset_b = object()
+
+        async def create_multi(e: Environment) -> MultiToolsetResource:
+            return MultiToolsetResource([toolset_a, toolset_b])
+
+        env.resources.register_factory("multi", create_multi)
+        await env.resources.get_or_create("multi")
+
+        toolsets = await env.resources.get_toolsets()
+        assert len(toolsets) == 2
+        assert toolset_a in toolsets
+        assert toolset_b in toolsets
+
+
 # --- Factory Environment Access Tests ---
 
 
@@ -557,6 +638,9 @@ async def test_registry_close_all_with_exception() -> None:
         def close(self) -> None:
             raise RuntimeError("Close failed")
 
+        async def get_toolsets(self) -> list:
+            return []
+
     async with MockEnvironment() as env:
         failing = FailingResource()
         good = SimpleResource()
@@ -615,6 +699,9 @@ async def test_registry_close_all_parallel_with_exception() -> None:
 
         def close(self) -> None:
             raise RuntimeError("Failed to close")
+
+        async def get_toolsets(self) -> list:
+            return []
 
     async with MockEnvironment() as env:
         good1 = SimpleResource()

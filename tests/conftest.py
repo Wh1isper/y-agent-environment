@@ -23,6 +23,9 @@ class SimpleResource:
     def close(self) -> None:
         self.closed = True
 
+    async def get_toolsets(self) -> list[Any]:
+        return []
+
 
 class ResumableMockResource:
     """A resumable resource for testing."""
@@ -41,6 +44,9 @@ class ResumableMockResource:
 
     def close(self) -> None:
         self.closed = True
+
+    async def get_toolsets(self) -> list[Any]:
+        return []
 
 
 class MockBaseResource(BaseResource):

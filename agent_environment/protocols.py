@@ -21,18 +21,38 @@ class Resource(Protocol):
     synchronous or asynchronous. The Environment will call close()
     during cleanup.
 
+    Resources can optionally provide toolsets via get_toolsets().
+    The default implementation returns an empty list.
+
     Example:
         class DatabaseConnection:
             async def close(self) -> None:
                 await self._pool.close()
 
+            def get_toolsets(self) -> list[Any]:
+                return [self._db_toolset]
+
         class FileHandle:
             def close(self) -> None:
                 self._handle.close()
+
+            def get_toolsets(self) -> list[Any]:
+                return []  # No toolsets
     """
 
     def close(self) -> Any:
         """Close the resource. Can be sync or async."""
+        ...
+
+    async def get_toolsets(self) -> list[Any]:
+        """Return toolsets provided by this resource.
+
+        Toolsets are tool collections that will be collected by
+        ResourceRegistry.get_toolsets() and can be injected into an Agent.
+
+        Returns:
+            List of toolset instances. Default implementation returns [].
+        """
         ...
 
 

@@ -149,7 +149,7 @@ class Environment(ABC):
 
     @property
     def toolsets(self) -> list[Any]:
-        """Return optional pydantic-ai toolsets provided by this environment.
+        """Return optional toolsets provided by this environment.
 
         Subclasses can populate self._toolsets in _setup() to provide
         environment-specific tools. These can be injected into an Agent's

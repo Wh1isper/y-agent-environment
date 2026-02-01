@@ -83,6 +83,17 @@ class BaseResource(ABC):
         """Close the resource and release any held resources."""
         ...
 
+    async def get_toolsets(self) -> list[Any]:
+        """Return toolsets provided by this resource.
+
+        Default implementation returns empty list.
+        Override to provide actual toolsets.
+
+        Returns:
+            List of toolset instances.
+        """
+        return []
+
     async def export_state(self) -> dict[str, Any]:
         """Export resource state for serialization.
 
@@ -448,6 +459,19 @@ class ResourceRegistry:
 
         self._resources.clear()
         self._factories.clear()
+
+    async def get_toolsets(self) -> list[Any]:
+        """Collect toolsets from all resources.
+
+        Iterates through all registered resources and collects their toolsets.
+
+        Returns:
+            Combined list of toolsets from all resources.
+        """
+        toolsets: list[Any] = []
+        for resource in self._resources.values():
+            toolsets.extend(await resource.get_toolsets())
+        return toolsets
 
     async def get_context_instructions(self) -> str | None:
         """Return combined context instructions from all resources in XML format.
