@@ -1,9 +1,9 @@
-"""Shared test fixtures and mock classes for agent_environment tests."""
+"""Shared test fixtures and mock classes for y_agent_environment tests."""
 
 from pathlib import Path
 from typing import Any
 
-from agent_environment import (
+from y_agent_environment import (
     BaseResource,
     Environment,
     FileOperator,

@@ -5,7 +5,11 @@ This module provides helper functions for file tree generation and related utili
 
 import pathspec
 
-from agent_environment.file_operator import DEFAULT_INSTRUCTIONS_MAX_DEPTH, DEFAULT_INSTRUCTIONS_SKIP_DIRS, FileOperator
+from y_agent_environment.file_operator import (
+    DEFAULT_INSTRUCTIONS_MAX_DEPTH,
+    DEFAULT_INSTRUCTIONS_SKIP_DIRS,
+    FileOperator,
+)
 
 
 def _should_skip_hidden_item(name: str, is_dir: bool, skip_dirs: frozenset[str]) -> tuple[bool, bool]:

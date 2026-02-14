@@ -12,13 +12,13 @@ from xml.etree import ElementTree as ET
 
 from pydantic import BaseModel, Field
 
-from agent_environment.protocols import InstructableResource, Resource, ResumableResource
+from y_agent_environment.protocols import InstructableResource, Resource, ResumableResource
 
 T = TypeVar("T")
 
 # Forward reference for type hints - Environment is defined in environment.py
 if TYPE_CHECKING:
-    from agent_environment.environment import Environment
+    from y_agent_environment.environment import Environment
 
 
 ResourceFactory = Callable[["Environment"], Awaitable[Resource]]

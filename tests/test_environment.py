@@ -2,7 +2,7 @@
 
 import pytest
 
-from agent_environment import (
+from y_agent_environment import (
     Environment,
     ResourceEntry,
     ResourceRegistryState,
@@ -196,7 +196,7 @@ async def test_environment_shell_before_enter() -> None:
 
 async def test_environment_get_toolsets_combines_env_and_resources() -> None:
     """get_toolsets should combine environment and resource toolsets."""
-    from agent_environment.resources import BaseResource
+    from y_agent_environment.resources import BaseResource
 
     class ToolsetResource(BaseResource):
         def __init__(self, toolset: object) -> None:

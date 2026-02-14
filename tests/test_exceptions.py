@@ -1,6 +1,6 @@
 """Tests for exception classes."""
 
-from agent_environment.exceptions import (
+from y_agent_environment.exceptions import (
     EnvironmentNotEnteredError,
     FileOperationError,
     PathNotAllowedError,

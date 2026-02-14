@@ -1,6 +1,6 @@
 """Tests for protocol detection."""
 
-from agent_environment import (
+from y_agent_environment import (
     InstructableResource,
     Resource,
     ResumableResource,

@@ -2,7 +2,7 @@
 
 import pytest
 
-from agent_environment import (
+from y_agent_environment import (
     BaseResource,
     Environment,
     Resource,

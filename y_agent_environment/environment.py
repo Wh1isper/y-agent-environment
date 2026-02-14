@@ -10,10 +10,10 @@ from typing import Any
 
 from typing_extensions import Self
 
-from agent_environment.exceptions import EnvironmentNotEnteredError
-from agent_environment.file_operator import FileOperator
-from agent_environment.resources import ResourceFactory, ResourceRegistry, ResourceRegistryState
-from agent_environment.shell import Shell
+from y_agent_environment.exceptions import EnvironmentNotEnteredError
+from y_agent_environment.file_operator import FileOperator
+from y_agent_environment.resources import ResourceFactory, ResourceRegistry, ResourceRegistryState
+from y_agent_environment.shell import Shell
 
 
 class Environment(ABC):

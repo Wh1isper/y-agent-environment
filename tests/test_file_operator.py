@@ -3,7 +3,7 @@
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from agent_environment import (
+from y_agent_environment import (
     DEFAULT_CHUNK_SIZE,
     FileOperator,
     FileStat,

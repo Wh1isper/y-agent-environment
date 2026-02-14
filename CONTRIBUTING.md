@@ -1,4 +1,4 @@
-# Contributing to `agent-environment`
+# Contributing to `y_agent_environment`
 
 Contributions are welcome, and they are greatly appreciated!
 Every little bit helps, and credit will always be given.
@@ -27,7 +27,7 @@ Anything tagged with "enhancement" and "help wanted" is open to whoever wants to
 
 ## Write Documentation
 
-agent-environment could always use more documentation, whether as part of the official docs, in docstrings, or even on the web in blog posts, articles, and such.
+y_agent_environment could always use more documentation, whether as part of the official docs, in docstrings, or even on the web in blog posts, articles, and such.
 
 ## Submit Feedback
 
@@ -40,22 +40,22 @@ If you are proposing a new feature:
 
 # Get Started!
 
-Ready to contribute? Here's how to set up `agent-environment` for local development.
+Ready to contribute? Here's how to set up `y_agent_environment` for local development.
 Please note this documentation assumes you already have `uv` and `Git` installed and ready to go.
 
-1. Fork the `agent-environment` repo on GitHub.
+1. Fork the `y_agent_environment` repo on GitHub.
 
 2. Clone your fork locally:
 
 ```bash
 cd <directory_in_which_repo_should_be_created>
-git clone git@github.com:YOUR_NAME/agent-environment.git
+git clone git@github.com:Wh1isper/y-agent-environment.git
 ```
 
 3. Now we need to install the environment. Navigate into the directory
 
 ```bash
-cd agent-environment
+cd y_agent_environment
 ```
 
 Then, install and activate the environment with:

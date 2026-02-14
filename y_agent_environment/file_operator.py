@@ -12,8 +12,8 @@ from xml.etree import ElementTree as ET
 
 import anyio
 
-from agent_environment.protocols import DEFAULT_CHUNK_SIZE, TmpFileOperator
-from agent_environment.types import FileStat, TruncatedResult
+from y_agent_environment.protocols import DEFAULT_CHUNK_SIZE, TmpFileOperator
+from y_agent_environment.types import FileStat, TruncatedResult
 
 # Default directories to skip but mark in file tree
 DEFAULT_INSTRUCTIONS_SKIP_DIRS: frozenset[str] = frozenset({"node_modules", ".git", ".venv", "__pycache__"})
@@ -859,7 +859,7 @@ class FileOperator(ABC):
     async def get_context_instructions(self) -> str | None:
         """Return file system context in XML format."""
         # Import here to avoid circular dependency
-        from agent_environment.utils import generate_filetree
+        from y_agent_environment.utils import generate_filetree
 
         if self._skip_instructions:
             return None

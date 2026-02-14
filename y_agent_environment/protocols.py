@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from agent_environment.types import FileStat, TruncatedResult
+from y_agent_environment.types import FileStat, TruncatedResult
 
 # Default chunk size for streaming operations (64KB)
 DEFAULT_CHUNK_SIZE = 65536
