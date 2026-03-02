@@ -875,6 +875,11 @@ class FileOperator(ABC):
             if tmp_dir_info:
                 tmp_dir = ET.SubElement(root, "tmp-directory")
                 tmp_dir.text = tmp_dir_info
+                tmp_note = ET.SubElement(root, "tmp-directory-note")
+                tmp_note.text = (
+                    "This is an agent-only temporary directory for intermediate files. "
+                    "Do not ask or expect users to interact with files in this directory."
+                )
 
         # File trees for each allowed path
         file_trees = ET.SubElement(root, "file-trees")
