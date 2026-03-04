@@ -878,7 +878,9 @@ class FileOperator(ABC):
                 tmp_note = ET.SubElement(root, "tmp-directory-note")
                 tmp_note.text = (
                     "This is an agent-only temporary directory for intermediate files. "
-                    "Do not ask or expect users to interact with files in this directory."
+                    "Never write deliverables or user-facing files here. "
+                    "Files the user needs to access must be written to the project directory. "
+                    "Never mention this path to the user."
                 )
 
         # File trees for each allowed path
