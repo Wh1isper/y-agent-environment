@@ -296,12 +296,20 @@ class FileOperator(ABC):
 
         # Non-tmp paths use subclass implementation
         await main_operator.write_file("/data/output.json", data)
+
+        # Tmp-only operator (no main filesystem)
+        tmp_only_operator = MyCustomOperator(
+            default_path=None,
+            tmp_dir=tmp_dir,
+        )
+        # All operations go through tmp_file_operator
+        await tmp_only_operator.write_file("cache.json", data)
         ```
     """
 
     def __init__(
         self,
-        default_path: Path,
+        default_path: Path | None = None,
         allowed_paths: list[Path] | None = None,
         instructions_skip_dirs: frozenset[str] | None = None,
         instructions_max_depth: int = DEFAULT_INSTRUCTIONS_MAX_DEPTH,
@@ -313,10 +321,13 @@ class FileOperator(ABC):
         """Initialize FileOperator.
 
         Args:
-            default_path: Default working directory for operations. Required.
+            default_path: Default working directory for operations.
+                If None, only tmp file operations are available (requires
+                tmp_dir or tmp_file_operator).
             allowed_paths: Directories accessible for file operations.
-                If None, defaults to [default_path].
-                default_path is always included in allowed_paths.
+                If None, defaults to [default_path] when default_path is set,
+                or [] when default_path is None.
+                default_path is always included in allowed_paths when set.
             instructions_skip_dirs: Directories to skip in file tree generation.
             instructions_max_depth: Maximum depth for file tree generation.
             tmp_dir: Directory for temporary files. If provided without
@@ -330,13 +341,13 @@ class FileOperator(ABC):
             If neither tmp_dir nor tmp_file_operator is provided, tmp handling
             is disabled. Cross-boundary operations will not be available.
         """
-        self._default_path = default_path.resolve()
+        self._default_path = default_path.resolve() if default_path is not None else None
 
         if allowed_paths is None:
-            self._allowed_paths = [self._default_path]
+            self._allowed_paths = [self._default_path] if self._default_path is not None else []
         else:
             resolved_paths = [p.resolve() for p in allowed_paths]
-            if self._default_path not in resolved_paths:
+            if self._default_path is not None and self._default_path not in resolved_paths:
                 resolved_paths.append(self._default_path)
             self._allowed_paths = resolved_paths
 
@@ -365,6 +376,9 @@ class FileOperator(ABC):
         """Delegate to tmp_file_operator to check if path is managed."""
         if self._tmp_file_operator is None:
             return False, path
+        if self._default_path is None:
+            # No main filesystem -- route everything through tmp
+            return True, path
         return self._tmp_file_operator.is_managed_path(path, self._default_path)
 
     def _is_tmp_path_pair(self, src: str, dst: str) -> tuple[bool, bool, str, str]:
@@ -866,8 +880,9 @@ class FileOperator(ABC):
         root = ET.Element("file-system")
 
         # Default directory
-        default_dir = ET.SubElement(root, "default-directory")
-        default_dir.text = str(self._default_path)
+        if self._default_path is not None:
+            default_dir = ET.SubElement(root, "default-directory")
+            default_dir.text = str(self._default_path)
 
         # Tmp directory (if configured)
         if self._tmp_file_operator:
@@ -886,12 +901,15 @@ class FileOperator(ABC):
         # File trees for each allowed path
         file_trees = ET.SubElement(root, "file-trees")
         for allowed_path in self._allowed_paths:
-            try:
-                rel_path = str(allowed_path.relative_to(self._default_path))
-                if rel_path == ".":
-                    rel_path = "."
-            except ValueError:
-                # Path is not under default_path, use absolute path
+            if self._default_path is not None:
+                try:
+                    rel_path = str(allowed_path.relative_to(self._default_path))
+                    if rel_path == ".":
+                        rel_path = "."
+                except ValueError:
+                    # Path is not under default_path, use absolute path
+                    rel_path = str(allowed_path)
+            else:
                 rel_path = str(allowed_path)
 
             tree = await generate_filetree(

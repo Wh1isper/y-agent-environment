@@ -12,7 +12,7 @@ class Shell(ABC):
 
     def __init__(
         self,
-        default_cwd: Path,
+        default_cwd: Path | None = None,
         allowed_paths: list[Path] | None = None,
         default_timeout: float = 30.0,
         skip_instructions: bool = False,
@@ -20,21 +20,24 @@ class Shell(ABC):
         """Initialize Shell.
 
         Args:
-            default_cwd: Default working directory for command execution. Required.
-                Always included in allowed_paths.
+            default_cwd: Default working directory for command execution.
+                If None, no default working directory is set; callers must
+                provide an explicit cwd for each command.
+                Always included in allowed_paths when set.
             allowed_paths: Directories allowed as working directories.
-                If None, defaults to [default_cwd].
+                If None, defaults to [default_cwd] when default_cwd is set,
+                or [] when default_cwd is None.
             default_timeout: Default timeout in seconds.
             skip_instructions: If True, get_context_instructions returns None.
         """
-        self._default_cwd = default_cwd.resolve()
+        self._default_cwd = default_cwd.resolve() if default_cwd is not None else None
 
-        # Build allowed_paths, ensuring default_cwd is included
+        # Build allowed_paths, ensuring default_cwd is included when set
         if allowed_paths is None:
-            self._allowed_paths = [self._default_cwd]
+            self._allowed_paths = [self._default_cwd] if self._default_cwd is not None else []
         else:
             resolved_paths = [p.resolve() for p in allowed_paths]
-            if self._default_cwd not in resolved_paths:
+            if self._default_cwd is not None and self._default_cwd not in resolved_paths:
                 resolved_paths.append(self._default_cwd)
             self._allowed_paths = resolved_paths
 
@@ -67,15 +70,19 @@ class Shell(ABC):
         """Return instructions for the agent about shell capabilities."""
         if self._skip_instructions:
             return None
-        paths_str = "\n".join(f"    <path>{p}</path>" for p in self._allowed_paths)
-        return f"""<shell-execution>
-  <allowed-working-directories>
-{paths_str}
-  </allowed-working-directories>
-  <default-working-directory>{self._default_cwd}</default-working-directory>
-  <default-timeout>{self._default_timeout}s</default-timeout>
-  <note>Commands will be executed with the working directory validated.</note>
-</shell-execution>"""
+        parts: list[str] = ["<shell-execution>"]
+
+        if self._allowed_paths:
+            paths_str = "\n".join(f"    <path>{p}</path>" for p in self._allowed_paths)
+            parts.append(f"  <allowed-working-directories>\n{paths_str}\n  </allowed-working-directories>")
+
+        if self._default_cwd is not None:
+            parts.append(f"  <default-working-directory>{self._default_cwd}</default-working-directory>")
+
+        parts.append(f"  <default-timeout>{self._default_timeout}s</default-timeout>")
+        parts.append("  <note>Commands will be executed with the working directory validated.</note>")
+        parts.append("</shell-execution>")
+        return "\n".join(parts)
 
     async def close(self) -> None:  # noqa: B027
         """Clean up resources owned by this Shell.
