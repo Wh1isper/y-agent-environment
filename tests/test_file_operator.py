@@ -689,3 +689,120 @@ async def test_file_operator_default_chunk_size(tmp_path: Path) -> None:
     # Verify content is correct
     result = await op.read_bytes(str(tmp_dir / "dest.bin"))
     assert result == content
+
+
+# --- Tmp-only FileOperator (default_path=None) ---
+
+
+class TmpOnlyFileOperator(FileOperator):
+    """A FileOperator with no main filesystem, only tmp."""
+
+    def __init__(self, tmp_dir: Path) -> None:
+        super().__init__(
+            default_path=None,
+            tmp_dir=tmp_dir,
+        )
+
+    # All _impl methods raise -- they should never be called in tmp-only mode
+    async def _read_file_impl(
+        self, path: str, *, encoding: str = "utf-8", offset: int = 0, length: int | None = None
+    ) -> str:
+        raise RuntimeError("Should not be called in tmp-only mode")
+
+    async def _read_bytes_impl(self, path: str, *, offset: int = 0, length: int | None = None) -> bytes:
+        raise RuntimeError("Should not be called in tmp-only mode")
+
+    async def _write_file_impl(self, path: str, content: str | bytes, *, encoding: str = "utf-8") -> None:
+        raise RuntimeError("Should not be called in tmp-only mode")
+
+    async def _append_file_impl(self, path: str, content: str | bytes, *, encoding: str = "utf-8") -> None:
+        raise RuntimeError("Should not be called in tmp-only mode")
+
+    async def _delete_impl(self, path: str) -> None:
+        raise RuntimeError("Should not be called in tmp-only mode")
+
+    async def _list_dir_impl(self, path: str) -> list[str]:
+        raise RuntimeError("Should not be called in tmp-only mode")
+
+    async def _exists_impl(self, path: str) -> bool:
+        raise RuntimeError("Should not be called in tmp-only mode")
+
+    async def _is_file_impl(self, path: str) -> bool:
+        raise RuntimeError("Should not be called in tmp-only mode")
+
+    async def _is_dir_impl(self, path: str) -> bool:
+        raise RuntimeError("Should not be called in tmp-only mode")
+
+    async def _mkdir_impl(self, path: str, *, parents: bool = False) -> None:
+        raise RuntimeError("Should not be called in tmp-only mode")
+
+    async def _move_impl(self, src: str, dst: str) -> None:
+        raise RuntimeError("Should not be called in tmp-only mode")
+
+    async def _copy_impl(self, src: str, dst: str) -> None:
+        raise RuntimeError("Should not be called in tmp-only mode")
+
+    async def _stat_impl(self, path: str) -> FileStat:
+        raise RuntimeError("Should not be called in tmp-only mode")
+
+    async def _glob_impl(self, pattern: str) -> list[str]:
+        raise RuntimeError("Should not be called in tmp-only mode")
+
+
+async def test_tmp_only_file_operator_routes_all_to_tmp(tmp_path: Path) -> None:
+    """FileOperator with default_path=None should route all operations to tmp."""
+    tmp_dir = tmp_path / "tmp"
+    tmp_dir.mkdir()
+
+    op = TmpOnlyFileOperator(tmp_dir)
+
+    # All operations go through tmp_file_operator, not _impl methods
+    await op.write_file("test.txt", "Hello from tmp-only")
+    content = await op.read_file("test.txt")
+    assert content == "Hello from tmp-only"
+
+    assert await op.exists("test.txt")
+    assert await op.is_file("test.txt")
+    assert not await op.is_dir("test.txt")
+
+    await op.mkdir("subdir")
+    assert await op.is_dir("subdir")
+
+    entries = await op.list_dir(".")
+    assert "test.txt" in entries
+    assert "subdir" in entries
+
+
+async def test_tmp_only_file_operator_allowed_paths_empty(tmp_path: Path) -> None:
+    """FileOperator with default_path=None should have empty allowed_paths by default."""
+    op = TmpOnlyFileOperator(tmp_path)
+    assert op._allowed_paths == []
+    assert op._default_path is None
+
+
+async def test_tmp_only_file_operator_context_instructions(tmp_path: Path) -> None:
+    """FileOperator with default_path=None should omit default-directory in instructions."""
+    tmp_dir = tmp_path / "tmp"
+    tmp_dir.mkdir()
+
+    op = TmpOnlyFileOperator(tmp_dir)
+    instructions = await op.get_context_instructions()
+    assert instructions is not None
+    assert "default-directory" not in instructions
+    assert "tmp-directory" in instructions
+
+
+async def test_file_operator_allowed_paths_without_default(tmp_path: Path) -> None:
+    """FileOperator with default_path=None and explicit allowed_paths."""
+    extra = tmp_path / "extra"
+    extra.mkdir()
+    tmp_dir = tmp_path / "tmp"
+    tmp_dir.mkdir()
+
+    # Reuse TmpOnlyFileOperator but override __init__ to pass allowed_paths
+    op = TmpOnlyFileOperator.__new__(TmpOnlyFileOperator)
+    FileOperator.__init__(op, default_path=None, tmp_dir=tmp_dir, allowed_paths=[extra])
+
+    # allowed_paths should contain only the explicit paths, not try to add None
+    assert len(op._allowed_paths) == 1
+    assert op._allowed_paths[0] == extra.resolve()
