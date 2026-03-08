@@ -125,14 +125,55 @@ async def test_environment_double_enter() -> None:
 
 
 async def test_environment_properties_before_enter() -> None:
-    """Should raise RuntimeError when accessing properties before enter."""
+    """Accessing file_operator/shell before enter should raise; entered should be False."""
+    from y_agent_environment import EnvironmentNotEnteredError
+
     env = MockEnvironment()
 
-    with pytest.raises(RuntimeError, match="Environment not entered"):
+    assert env.entered is False
+    with pytest.raises(EnvironmentNotEnteredError):
         _ = env.file_operator
-
-    with pytest.raises(RuntimeError, match="Environment not entered"):
+    with pytest.raises(EnvironmentNotEnteredError):
         _ = env.shell
+
+
+async def test_environment_entered_flag() -> None:
+    """entered should be True inside context, False after exit."""
+    env = MockEnvironment()
+    assert env.entered is False
+
+    async with env:
+        assert env.entered is True
+        assert env.file_operator is not None
+        assert env.shell is not None
+
+    assert env.entered is False
+
+
+async def test_environment_none_file_operator_and_shell() -> None:
+    """Environment should work when file_operator and shell are None."""
+    from y_agent_environment import EnvironmentNotEnteredError
+
+    class MinimalEnvironment(Environment):
+        async def _setup(self) -> None:
+            pass  # Leave file_operator and shell as None
+
+        async def _teardown(self) -> None:
+            pass
+
+    async with MinimalEnvironment() as env:
+        assert env.entered is True
+        assert env.file_operator is None
+        assert env.shell is None
+
+        # get_context_instructions should still work with no file_operator/shell
+        result = await env.get_context_instructions()
+        assert result == ""
+
+    # Before enter, get_context_instructions should raise
+    env2 = MinimalEnvironment()
+    with pytest.raises(EnvironmentNotEnteredError):
+        await env2.get_context_instructions()
 
 
 async def test_environment_get_toolsets_empty() -> None:
@@ -182,15 +223,19 @@ async def test_environment_reenter_raises() -> None:
 
 async def test_environment_file_operator_before_enter() -> None:
     """Accessing file_operator before enter should raise."""
+    from y_agent_environment import EnvironmentNotEnteredError
+
     env = MockEnvironment()
-    with pytest.raises(RuntimeError, match="not entered"):
+    with pytest.raises(EnvironmentNotEnteredError):
         _ = env.file_operator
 
 
 async def test_environment_shell_before_enter() -> None:
     """Accessing shell before enter should raise."""
+    from y_agent_environment import EnvironmentNotEnteredError
+
     env = MockEnvironment()
-    with pytest.raises(RuntimeError, match="not entered"):
+    with pytest.raises(EnvironmentNotEnteredError):
         _ = env.shell
 
 
