@@ -119,25 +119,34 @@ class Environment(ABC):
         self._enter_lock: asyncio.Lock = asyncio.Lock()
 
     @property
-    def file_operator(self) -> FileOperator:
-        """Return the file operator.
+    def entered(self) -> bool:
+        """Whether the environment has been entered via async context manager."""
+        return self._entered
+
+    @property
+    def file_operator(self) -> FileOperator | None:
+        """Return the file operator, or None if not configured.
 
         Raises:
-            RuntimeError: If environment has not been entered.
+            EnvironmentNotEnteredError: If environment has not been entered.
+
+        Returns None when the subclass chooses not to provide a file operator.
         """
-        if self._file_operator is None:
-            raise RuntimeError("Environment not entered. Use 'async with' to enter the environment first.")
+        if not self._entered:
+            raise EnvironmentNotEnteredError("file_operator")
         return self._file_operator
 
     @property
-    def shell(self) -> Shell:
-        """Return the shell.
+    def shell(self) -> Shell | None:
+        """Return the shell, or None if not configured.
 
         Raises:
-            RuntimeError: If environment has not been entered.
+            EnvironmentNotEnteredError: If environment has not been entered.
+
+        Returns None when the subclass chooses not to provide a shell.
         """
-        if self._shell is None:
-            raise RuntimeError("Environment not entered. Use 'async with' to enter the environment first.")
+        if not self._entered:
+            raise EnvironmentNotEnteredError("shell")
         return self._shell
 
     @property
@@ -233,9 +242,12 @@ class Environment(ABC):
         """Initialize environment resources.
 
         Subclasses must implement this to:
-        - Create and assign self._file_operator
-        - Create and assign self._shell
+        - Optionally create and assign self._file_operator
+        - Optionally create and assign self._shell
         - Optionally register custom resources via self._resources.set()
+
+        Both file_operator and shell may be left as None if the environment
+        does not need them. Tools should check availability before use.
 
         This is called by __aenter__.
         """
@@ -313,21 +325,20 @@ class Environment(ABC):
         Raises:
             EnvironmentNotEnteredError: If environment has not been entered yet.
         """
+        if not self._entered:
+            raise EnvironmentNotEnteredError("environment")
+
         parts: list[str] = []
 
-        try:
-            file_instructions = await self.file_operator.get_context_instructions()
+        if self._file_operator is not None:
+            file_instructions = await self._file_operator.get_context_instructions()
             if file_instructions:
                 parts.append(file_instructions)
-        except RuntimeError as e:
-            raise EnvironmentNotEnteredError("file_operator") from e
 
-        try:
-            shell_instructions = await self.shell.get_context_instructions()
+        if self._shell is not None:
+            shell_instructions = await self._shell.get_context_instructions()
             if shell_instructions:
                 parts.append(shell_instructions)
-        except RuntimeError as e:
-            raise EnvironmentNotEnteredError("shell") from e
 
         # Collect resource instructions
         resource_instructions = await self._resources.get_context_instructions()
