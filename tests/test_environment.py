@@ -279,3 +279,10 @@ async def test_environment_get_toolsets_combines_env_and_resources() -> None:
         assert env_toolset in toolsets
         assert toolset1 in toolsets
         assert toolset2 in toolsets
+
+
+async def test_environment_fork_raises_not_implemented() -> None:
+    """Default fork() should raise NotImplementedError."""
+    async with MockEnvironment() as env:
+        with pytest.raises(NotImplementedError, match="MockEnvironment does not support fork"):
+            env.fork()
