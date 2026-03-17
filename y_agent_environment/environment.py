@@ -6,6 +6,7 @@ that manage the lifecycle of shared resources.
 
 import asyncio
 from abc import ABC, abstractmethod
+from contextlib import AbstractAsyncContextManager
 from typing import Any
 
 from typing_extensions import Self
@@ -266,6 +267,37 @@ class Environment(ABC):
         This is called by __aexit__.
         """
         ...
+
+    # --- Workspace isolation ---
+
+    def fork(self) -> AbstractAsyncContextManager["Self"]:
+        """Create an isolated copy of this environment.
+
+        Returns an async context manager that yields a new Environment instance
+        with its own file_operator and shell pointing to an isolated workspace
+        directory. The forked environment starts with an empty resource registry.
+
+        Subclasses that support workspace isolation should override this method.
+        The mechanism for creating the isolated directory (e.g., git worktree,
+        file copy) is an implementation detail of each subclass.
+
+        Yields:
+            A new Environment instance with isolated workspace.
+
+        Raises:
+            NotImplementedError: If the subclass does not support forking.
+
+        Example::
+
+            async with env.fork() as forked_env:
+                # forked_env has its own workspace
+                await forked_env.shell.execute("make test")
+            # Isolated workspace is cleaned up automatically
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support fork(). "
+            "Subclasses must override this method to provide workspace isolation."
+        )
 
     # --- Fixed lifecycle management ---
 
