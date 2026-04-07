@@ -5,12 +5,11 @@ description = "Environmental Abstraction for General Agent."
 authors = [{ name = "wh1isper", email = "dev@wh1isper.com" }]
 readme = "README.md"
 keywords = ['python']
-requires-python = ">=3.10,<4.0"
+requires-python = ">=3.11,<4.0"
 classifiers = [
     "Intended Audience :: Developers",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -22,7 +21,6 @@ dependencies = [
     "anyio>=4.0.0",
     "pathspec>=0.12.0",
     "pydantic>=2.0.0",
-    "typing-extensions>=4.0.0",
 ]
 
 [project.urls]
@@ -49,13 +47,13 @@ py-modules = ["y_agent_environment"]
 
 [tool.pyright]
 include = ["y_agent_environment"]
-pythonVersion = "3.10"
+pythonVersion = "3.11"
 typeCheckingMode = "standard"
 reportMissingImports = true
 reportMissingTypeStubs = false
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 120
 fix = true
 

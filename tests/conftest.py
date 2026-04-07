@@ -10,6 +10,7 @@ from y_agent_environment import (
     FileStat,
     Shell,
 )
+from y_agent_environment.shell import ExecutionHandle
 
 # --- Test fixtures and helpers ---
 
@@ -186,6 +187,46 @@ class MockShell(Shell):
         cwd: str | None = None,
     ) -> tuple[int, str, str]:
         return (0, "", "")
+
+    async def _create_process(
+        self,
+        command: str,
+        *,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+    ) -> ExecutionHandle:
+        import asyncio
+        import contextlib
+
+        stdout_stream = asyncio.StreamReader()
+        stderr_stream = asyncio.StreamReader()
+
+        async def _execute() -> int:
+            exit_code, stdout, stderr = await self.execute(command, timeout=None, env=env, cwd=cwd)
+            if stdout:
+                stdout_stream.feed_data(stdout.encode("utf-8"))
+            stdout_stream.feed_eof()
+            if stderr:
+                stderr_stream.feed_data(stderr.encode("utf-8"))
+            stderr_stream.feed_eof()
+            return exit_code
+
+        exec_task = asyncio.create_task(_execute())
+
+        async def _wait() -> int:
+            return await exec_task
+
+        async def _kill() -> None:
+            exec_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await exec_task
+
+        return ExecutionHandle(
+            stdout=stdout_stream,
+            stderr=stderr_stream,
+            wait=_wait,
+            kill=_kill,
+        )
 
 
 class MockEnvironment(Environment):
