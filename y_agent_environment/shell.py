@@ -672,13 +672,19 @@ class Shell(ABC):
             sig: Signal number to send (use ``signal`` module constants).
 
         Raises:
-            KeyError: If process_id is not found or has no signal handler.
+            KeyError: If process_id is not found, has no signal handler,
+                or has already completed.
         """
         handler = self._signal_handlers.get(process_id)
         if handler is None:
             if process_id in self._output_buffers:
                 raise KeyError(f"Process {process_id} does not support signals")
             raise KeyError(f"No background process with id: {process_id}")
+
+        # Reject signals for completed processes to avoid signaling reused PIDs
+        if process_id not in self._background_tasks:
+            raise KeyError(f"Process {process_id} has already completed")
+
         await handler(sig)
 
     # ------------------------------------------------------------------

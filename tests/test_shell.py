@@ -1319,6 +1319,23 @@ async def test_signal_handler_cleanup_on_close() -> None:
     assert len(shell._signal_handlers) == 0
 
 
+async def test_send_signal_rejected_for_completed_process() -> None:
+    """send_signal should reject signals for completed processes to avoid PID reuse."""
+    shell = SignalShell(default_cwd=None)
+    pid = await shell.start("echo hello")
+    # Wait for the process to complete
+    await asyncio.sleep(0.1)
+
+    # Process completed but output not consumed -- handler still exists
+    assert pid in shell._signal_handlers
+    assert pid not in shell._background_tasks
+
+    with pytest.raises(KeyError, match="has already completed"):
+        await shell.send_signal(pid, 2)
+
+    await shell.close()
+
+
 async def test_kill_process_cleanup_guaranteed() -> None:
     """kill_process should clean up tracking even if cancel raises unexpectedly."""
     shell = ConcreteShell(default_cwd=None)
