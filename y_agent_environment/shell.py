@@ -86,17 +86,16 @@ class StdinAdapter:
     async def write(self, data: bytes) -> None:
         """Write data and flush.  Silently ignores writes after close.
 
-        If the pipe/connection breaks during write, marks the adapter
-        as closed and re-raises.  This prevents further futile writes
-        while still informing the caller of the failure (important for
-        network-backed streams like SSH/WebSocket).
+        On pipe/connection errors, marks the adapter as closed to
+        prevent further futile writes, then re-raises so the caller
+        knows the write failed (e.g., process exited, SSH dropped).
         """
         if self._closed:
             return
         try:
             self._writer.write(data)
             await self._writer.drain()
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, OSError):
             self._closed = True
             raise
 
@@ -570,21 +569,22 @@ class Shell(ABC):
         stdout = "\n".join(buf.stdout) if buf and buf.stdout else ""
         stderr = "\n".join(buf.stderr) if buf and buf.stderr else ""
 
-        # Close stdin before cancelling
-        stdin = self._stdin_streams.pop(process_id, None)
-        if stdin is not None:
-            with contextlib.suppress(Exception):
-                await stdin.close()
+        try:
+            # Close stdin before cancelling
+            stdin = self._stdin_streams.pop(process_id, None)
+            if stdin is not None:
+                with contextlib.suppress(Exception):
+                    await stdin.close()
 
-        if task is not None:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-
-        # Clean up all tracking
-        self._background_tasks.pop(process_id, None)
-        self._background_processes.pop(process_id, None)
-        self._output_buffers.pop(process_id, None)
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        finally:
+            # Always clean up tracking, even if cancel/close raises
+            self._background_tasks.pop(process_id, None)
+            self._background_processes.pop(process_id, None)
+            self._output_buffers.pop(process_id, None)
 
         return stdout, stderr
 
@@ -662,8 +662,12 @@ class Shell(ABC):
         if not completed_pids:
             return []
 
+        # Only consume up to the cap to avoid silently dropping results.
+        # Remaining completed processes stay in the buffer for the next call.
+        pids_to_consume = completed_pids[:_MAX_COMPLETED_RESULTS]
+
         results: list[CompletedProcess] = []
-        for pid in completed_pids:
+        for pid in pids_to_consume:
             buf = self._output_buffers.pop(pid)
             meta = self._background_processes.pop(pid, None)
             self._stdin_streams.pop(pid, None)
@@ -686,10 +690,6 @@ class Shell(ABC):
                 )
             )
 
-        # Enforce cap on returned results (oldest first, drop excess)
-        if len(results) > _MAX_COMPLETED_RESULTS:
-            results = results[-_MAX_COMPLETED_RESULTS:]
-
         return results
 
     # ------------------------------------------------------------------
@@ -698,8 +698,13 @@ class Shell(ABC):
 
     @property
     def active_background_processes(self) -> dict[str, BackgroundProcess]:
-        """Return a snapshot of currently tracked background processes."""
-        return dict(self._background_processes)
+        """Return a snapshot of currently running background processes.
+
+        Only includes processes whose task is still running (not yet
+        completed or killed).  Completed-but-unconsumed processes are
+        excluded -- use consume_completed_results() for those.
+        """
+        return {pid: p for pid, p in self._background_processes.items() if pid in self._background_tasks}
 
     @property
     def has_active_background_processes(self) -> bool:

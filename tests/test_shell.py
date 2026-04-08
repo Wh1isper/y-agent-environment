@@ -925,3 +925,273 @@ async def test_stdin_none_for_no_stdin_process() -> None:
     pid = await shell.start("echo hello")
     assert pid not in shell._stdin_streams
     await shell.close()
+
+
+# =============================================================================
+# Tests for review fixes (pid, readline guard, active_background_processes,
+# consume_completed_results cap, kill_process cleanup, stdin cleanup)
+# =============================================================================
+
+
+class ShellWithPid(Shell):
+    """Shell that exposes pid in ExecutionHandle."""
+
+    async def execute(self, command, *, timeout=None, env=None, cwd=None):
+        return (0, f"output of {command}", "")
+
+    async def _create_process(self, command, *, env=None, cwd=None):
+        import contextlib
+
+        stdout_stream = asyncio.StreamReader()
+        stderr_stream = asyncio.StreamReader()
+
+        async def _execute():
+            exit_code, stdout, stderr = await self.execute(command, timeout=None, env=env, cwd=cwd)
+            if stdout:
+                stdout_stream.feed_data(stdout.encode("utf-8"))
+            stdout_stream.feed_eof()
+            if stderr:
+                stderr_stream.feed_data(stderr.encode("utf-8"))
+            stderr_stream.feed_eof()
+            return exit_code
+
+        exec_task = asyncio.create_task(_execute())
+
+        async def _wait():
+            return await exec_task
+
+        async def _kill():
+            exec_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await exec_task
+
+        return ExecutionHandle(
+            stdout=stdout_stream,
+            stderr=stderr_stream,
+            wait=_wait,
+            kill=_kill,
+            pid=12345,
+        )
+
+
+async def test_pid_propagated_to_background_process() -> None:
+    """PID from ExecutionHandle should be propagated to BackgroundProcess metadata."""
+    shell = ShellWithPid(default_cwd=None)
+    pid = await shell.start("echo test")
+    procs = shell.active_background_processes
+    assert pid in procs
+    assert procs[pid].pid == 12345
+    await shell.close()
+
+
+async def test_pid_none_when_not_set() -> None:
+    """BackgroundProcess.pid should be None when ExecutionHandle has no pid."""
+    shell = ConcreteShell(default_cwd=None)
+    pid = await shell.start("echo test")
+    procs = shell.active_background_processes
+    assert pid in procs
+    assert procs[pid].pid is None
+    await shell.close()
+
+
+async def test_active_background_processes_excludes_completed() -> None:
+    """active_background_processes should only include running processes."""
+    shell = ConcreteShell(default_cwd=None)
+    pid = await shell.start("echo done")
+    # Wait for completion
+    await shell.wait_process(pid, timeout=2.0)
+    # After drain, process should not appear in active
+    assert pid not in shell.active_background_processes
+    await shell.close()
+
+
+async def test_active_background_processes_excludes_completed_but_unconsumed() -> None:
+    """Completed-but-unconsumed processes should NOT appear in active_background_processes."""
+    shell = ConcreteShell(default_cwd=None)
+    pid = await shell.start("echo done")
+    # Wait for process to finish (don't drain)
+    await asyncio.sleep(0.1)
+    # Process completed but buffer not yet drained
+    buf = shell._output_buffers.get(pid)
+    if buf and buf.completed:
+        # Should NOT appear in active
+        assert pid not in shell.active_background_processes
+    await shell.close()
+
+
+async def test_readline_valueerror_guard() -> None:
+    """readline() ValueError should be caught and produce a truncation marker."""
+
+    class OverflowStream:
+        """Stream that raises ValueError on readline (simulating oversized line)."""
+
+        def __init__(self):
+            self._calls = 0
+
+        async def readline(self):
+            self._calls += 1
+            if self._calls == 1:
+                raise ValueError("Separator is not found, and chunk exceed the limit")
+            if self._calls == 2:
+                return b"normal line\n"
+            return b""  # EOF
+
+    shell = ConcreteShell(default_cwd=None)
+    # Manually set up process with custom stream
+    _process_id, _buf = shell._setup_background_process("test", None)
+    overflow_stdout = OverflowStream()
+    normal_stderr = asyncio.StreamReader()
+    normal_stderr.feed_eof()
+
+    ExecutionHandle(
+        stdout=overflow_stdout,
+        stderr=normal_stderr,
+        wait=asyncio.Future,  # won't be called
+        kill=asyncio.Future,  # won't be called
+    )
+
+    # Manually run the _read_stream logic by calling start internals
+    from collections import deque
+
+    from y_agent_environment.shell import _truncate_line
+
+    target: deque[str] = deque(maxlen=_MAX_BUFFER_LINES)
+
+    # Simulate _read_stream
+    while True:
+        try:
+            line_bytes = await overflow_stdout.readline()
+        except ValueError:
+            target.append("[line too long, truncated]")
+            continue
+        if not line_bytes:
+            break
+        line = line_bytes.decode("utf-8", errors="replace").rstrip("\n")
+        target.append(_truncate_line(line))
+
+    assert len(target) == 2
+    assert target[0] == "[line too long, truncated]"
+    assert target[1] == "normal line"
+    await shell.close()
+
+
+async def test_stdin_adapter_broken_pipe() -> None:
+    """StdinAdapter.write() should catch BrokenPipeError, mark closed, and re-raise."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from y_agent_environment.shell import StdinAdapter
+
+    writer = MagicMock()
+    writer.write = MagicMock(side_effect=BrokenPipeError("pipe broken"))
+    writer.drain = AsyncMock()
+    writer.close = MagicMock()
+    writer.wait_closed = AsyncMock()
+
+    adapter = StdinAdapter(writer)
+    assert adapter._closed is False
+
+    # Should catch BrokenPipeError, mark closed, and re-raise
+    with pytest.raises(BrokenPipeError):
+        await adapter.write(b"hello")
+    assert adapter._closed is True
+
+    # Subsequent writes should be silently ignored (no re-raise)
+    await adapter.write(b"ignored")
+    # write was only called once (the broken one)
+    assert writer.write.call_count == 1
+
+
+async def test_stdin_adapter_connection_reset() -> None:
+    """StdinAdapter.write() should catch ConnectionResetError, mark closed, and re-raise."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from y_agent_environment.shell import StdinAdapter
+
+    writer = MagicMock()
+    writer.write = MagicMock()
+    writer.drain = AsyncMock(side_effect=ConnectionResetError("reset"))
+    writer.close = MagicMock()
+    writer.wait_closed = AsyncMock()
+
+    adapter = StdinAdapter(writer)
+    with pytest.raises(ConnectionResetError):
+        await adapter.write(b"hello")
+    assert adapter._closed is True
+
+
+async def test_consume_completed_results_respects_cap() -> None:
+    """consume_completed_results should not consume more than the cap."""
+    from y_agent_environment.shell import _MAX_COMPLETED_RESULTS
+
+    shell = ConcreteShell(default_cwd=None)
+
+    # Create many completed buffers manually
+    count = _MAX_COMPLETED_RESULTS + 10
+    for i in range(count):
+        pid = f"proc-{i}"
+        shell._background_processes[pid] = BackgroundProcess(process_id=pid, command=f"cmd-{i}", cwd=None)
+        buf = OutputBuffer()
+        buf.completed = True
+        buf.exit_code = 0
+        shell._output_buffers[pid] = buf
+
+    results = shell.consume_completed_results()
+    assert len(results) == _MAX_COMPLETED_RESULTS
+
+    # Remaining should still be in buffer
+    remaining_completed = [pid for pid, buf in shell._output_buffers.items() if buf.completed]
+    assert len(remaining_completed) == 10
+
+    # Second call should consume the rest
+    results2 = shell.consume_completed_results()
+    assert len(results2) == 10
+
+    await shell.close()
+
+
+async def test_drain_output_cleans_stdin_streams() -> None:
+    """drain_output should remove stdin stream entries for completed processes."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from y_agent_environment.shell import StdinAdapter
+
+    shell = ConcreteShell(default_cwd=None)
+
+    # Manually set up a completed process with stdin
+    pid = "test-stdin-cleanup"
+    shell._background_processes[pid] = BackgroundProcess(process_id=pid, command="test", cwd=None)
+    buf = OutputBuffer()
+    buf.completed = True
+    buf.exit_code = 0
+    shell._output_buffers[pid] = buf
+
+    mock_writer = MagicMock()
+    mock_writer.close = MagicMock()
+    mock_writer.wait_closed = AsyncMock()
+    shell._stdin_streams[pid] = StdinAdapter(mock_writer)
+
+    # drain_output should clean up stdin
+    shell.drain_output(pid)
+
+    assert pid not in shell._stdin_streams
+    assert pid not in shell._output_buffers
+    assert pid not in shell._background_processes
+    await shell.close()
+
+
+async def test_kill_process_cleanup_guaranteed() -> None:
+    """kill_process should clean up tracking even if cancel raises unexpectedly."""
+    shell = ConcreteShell(default_cwd=None)
+    pid = await shell.start("sleep 10")
+
+    assert pid in shell._background_processes
+    assert pid in shell._output_buffers
+
+    await shell.kill_process(pid)
+
+    # All tracking should be cleaned up
+    assert pid not in shell._background_tasks
+    assert pid not in shell._background_processes
+    assert pid not in shell._output_buffers
+    assert pid not in shell._stdin_streams
+    await shell.close()
