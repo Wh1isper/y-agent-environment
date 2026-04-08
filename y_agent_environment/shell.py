@@ -130,6 +130,7 @@ class ExecutionHandle:
     kill: Callable[[], Awaitable[None]]
     stdin: WritableStream | None = None
     pid: int | None = None
+    send_signal: Callable[[int], Awaitable[None]] | None = None
 
 
 @dataclass
@@ -232,6 +233,7 @@ class Shell(ABC):
         self._background_tasks: dict[str, asyncio.Task[int]] = {}
         self._output_buffers: dict[str, OutputBuffer] = {}
         self._stdin_streams: dict[str, WritableStream] = {}
+        self._signal_handlers: dict[str, Callable[[int], Awaitable[None]]] = {}
 
     # ------------------------------------------------------------------
     # Abstract interface
@@ -350,6 +352,10 @@ class Shell(ABC):
         # Track stdin stream if available
         if handle.stdin is not None:
             self._stdin_streams[process_id] = handle.stdin
+
+        # Track signal handler if available
+        if handle.send_signal is not None:
+            self._signal_handlers[process_id] = handle.send_signal
 
         task = asyncio.create_task(_run(), name=f"bg-shell-{process_id}")
         self._register_background_task(process_id, task)
@@ -496,6 +502,7 @@ class Shell(ABC):
             self._output_buffers.pop(process_id, None)
             self._background_processes.pop(process_id, None)
             self._stdin_streams.pop(process_id, None)
+            self._signal_handlers.pop(process_id, None)
 
         return stdout, stderr, is_running, exit_code
 
@@ -585,6 +592,7 @@ class Shell(ABC):
             self._background_tasks.pop(process_id, None)
             self._background_processes.pop(process_id, None)
             self._output_buffers.pop(process_id, None)
+            self._signal_handlers.pop(process_id, None)
 
         return stdout, stderr
 
@@ -604,6 +612,7 @@ class Shell(ABC):
         self._background_processes.clear()
         self._output_buffers.clear()
         self._stdin_streams.clear()
+        self._signal_handlers.clear()
 
     # ------------------------------------------------------------------
     # Stdin interaction
@@ -641,6 +650,44 @@ class Shell(ABC):
                 await stream.close()
 
     # ------------------------------------------------------------------
+    # Signal sending
+    # ------------------------------------------------------------------
+
+    async def send_signal(self, process_id: str, sig: int) -> None:
+        """Send a signal to a background process.
+
+        Uses the signal handler provided by the ExecutionHandle.
+        For local processes this typically maps to os.kill(); for sandbox
+        processes this may send a signal message over the exec transport.
+
+        Common signals (from the ``signal`` module)::
+
+            signal.SIGINT  (2)  -- Interrupt (like Ctrl+C)
+            signal.SIGTERM (15) -- Graceful termination
+            signal.SIGKILL (9)  -- Forced kill
+            signal.SIGCONT (18) -- Resume a stopped process
+
+        Args:
+            process_id: The process ID returned by start().
+            sig: Signal number to send (use ``signal`` module constants).
+
+        Raises:
+            KeyError: If process_id is not found, has no signal handler,
+                or has already completed.
+        """
+        handler = self._signal_handlers.get(process_id)
+        if handler is None:
+            if process_id in self._output_buffers:
+                raise KeyError(f"Process {process_id} does not support signals")
+            raise KeyError(f"No background process with id: {process_id}")
+
+        # Reject signals for completed processes to avoid signaling reused PIDs
+        if process_id not in self._background_tasks:
+            raise KeyError(f"Process {process_id} has already completed")
+
+        await handler(sig)
+
+    # ------------------------------------------------------------------
     # Completed results for filter consumption
     # ------------------------------------------------------------------
 
@@ -671,6 +718,7 @@ class Shell(ABC):
             buf = self._output_buffers.pop(pid)
             meta = self._background_processes.pop(pid, None)
             self._stdin_streams.pop(pid, None)
+            self._signal_handlers.pop(pid, None)
 
             stdout = "\n".join(buf.stdout) if buf.stdout else ""
             stderr = "\n".join(buf.stderr) if buf.stderr else ""

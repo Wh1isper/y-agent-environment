@@ -1179,6 +1179,163 @@ async def test_drain_output_cleans_stdin_streams() -> None:
     await shell.close()
 
 
+# =============================================================================
+# Signal support tests
+# =============================================================================
+
+
+class SignalShell(Shell):
+    """Shell that supports send_signal for testing."""
+
+    async def execute(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+    ) -> tuple[int, str, str]:
+        if command.startswith("sleep"):
+            duration = float(command.split()[1])
+            await asyncio.sleep(duration)
+        return (0, f"output of {command}", "")
+
+    async def _create_process(
+        self,
+        command: str,
+        *,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+    ) -> ExecutionHandle:
+        import contextlib
+
+        stdout_stream = asyncio.StreamReader()
+        stderr_stream = asyncio.StreamReader()
+        self._received_signals: list[int] = []
+
+        async def _execute() -> int:
+            exit_code, stdout, stderr = await self.execute(command, timeout=None, env=env, cwd=cwd)
+            if stdout:
+                stdout_stream.feed_data(stdout.encode("utf-8"))
+            stdout_stream.feed_eof()
+            if stderr:
+                stderr_stream.feed_data(stderr.encode("utf-8"))
+            stderr_stream.feed_eof()
+            return exit_code
+
+        exec_task = asyncio.create_task(_execute())
+
+        async def _wait() -> int:
+            return await exec_task
+
+        async def _kill() -> None:
+            exec_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await exec_task
+
+        async def _send_signal(sig: int) -> None:
+            self._received_signals.append(sig)
+
+        return ExecutionHandle(
+            stdout=stdout_stream,
+            stderr=stderr_stream,
+            wait=_wait,
+            kill=_kill,
+            send_signal=_send_signal,
+        )
+
+
+async def test_send_signal_to_running_process() -> None:
+    """send_signal should invoke the handler stored from ExecutionHandle."""
+    import signal
+
+    shell = SignalShell(default_cwd=None)
+    pid = await shell.start("sleep 10")
+
+    await shell.send_signal(pid, signal.SIGINT)
+    assert shell._received_signals == [signal.SIGINT]
+
+    await shell.send_signal(pid, signal.SIGTERM)
+    assert shell._received_signals == [signal.SIGINT, signal.SIGTERM]
+
+    await shell.close()
+
+
+async def test_send_signal_unknown_process() -> None:
+    """send_signal should raise KeyError for unknown process_id."""
+    shell = SignalShell(default_cwd=None)
+
+    with pytest.raises(KeyError, match="No background process"):
+        await shell.send_signal("nonexistent", 2)
+
+    await shell.close()
+
+
+async def test_send_signal_no_handler() -> None:
+    """send_signal should raise KeyError for processes without signal support."""
+    shell = ConcreteShell(default_cwd=None)
+    pid = await shell.start("echo hello")
+    await asyncio.sleep(0.05)
+
+    # ConcreteShell doesn't provide send_signal in ExecutionHandle
+    with pytest.raises(KeyError, match="does not support signals"):
+        await shell.send_signal(pid, 2)
+
+    await shell.close()
+
+
+async def test_signal_handler_cleanup_on_drain() -> None:
+    """drain_output should clean up signal handlers for completed processes."""
+    shell = SignalShell(default_cwd=None)
+    pid = await shell.start("echo hello")
+    await asyncio.sleep(0.05)
+
+    assert pid in shell._signal_handlers
+    shell.drain_output(pid)
+    assert pid not in shell._signal_handlers
+
+    await shell.close()
+
+
+async def test_signal_handler_cleanup_on_kill() -> None:
+    """kill_process should clean up signal handlers."""
+    shell = SignalShell(default_cwd=None)
+    pid = await shell.start("sleep 10")
+
+    assert pid in shell._signal_handlers
+    await shell.kill_process(pid)
+    assert pid not in shell._signal_handlers
+
+    await shell.close()
+
+
+async def test_signal_handler_cleanup_on_close() -> None:
+    """close() should clean up all signal handlers."""
+    shell = SignalShell(default_cwd=None)
+    await shell.start("sleep 10")
+    await shell.start("sleep 10")
+    assert len(shell._signal_handlers) == 2
+    await shell.close()
+    assert len(shell._signal_handlers) == 0
+
+
+async def test_send_signal_rejected_for_completed_process() -> None:
+    """send_signal should reject signals for completed processes to avoid PID reuse."""
+    shell = SignalShell(default_cwd=None)
+    pid = await shell.start("echo hello")
+    # Wait for the process to complete
+    await asyncio.sleep(0.1)
+
+    # Process completed but output not consumed -- handler still exists
+    assert pid in shell._signal_handlers
+    assert pid not in shell._background_tasks
+
+    with pytest.raises(KeyError, match="has already completed"):
+        await shell.send_signal(pid, 2)
+
+    await shell.close()
+
+
 async def test_kill_process_cleanup_guaranteed() -> None:
     """kill_process should clean up tracking even if cancel raises unexpectedly."""
     shell = ConcreteShell(default_cwd=None)
