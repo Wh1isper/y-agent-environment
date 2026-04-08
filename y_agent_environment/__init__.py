@@ -36,7 +36,14 @@ from y_agent_environment.resources import (
     ResourceRegistry,
     ResourceRegistryState,
 )
-from y_agent_environment.shell import Shell
+from y_agent_environment.shell import (
+    BackgroundProcess,
+    CompletedProcess,
+    ExecutionHandle,
+    OutputBuffer,
+    Shell,
+    StdinAdapter,
+)
 from y_agent_environment.types import FileStat, TruncatedResult
 from y_agent_environment.utils import generate_filetree
 
@@ -44,15 +51,19 @@ __all__ = [
     "DEFAULT_CHUNK_SIZE",
     "DEFAULT_INSTRUCTIONS_MAX_DEPTH",
     "DEFAULT_INSTRUCTIONS_SKIP_DIRS",
+    "BackgroundProcess",
     "BaseResource",
+    "CompletedProcess",
     "Environment",
     "EnvironmentError",
     "EnvironmentNotEnteredError",
+    "ExecutionHandle",
     "FileOperationError",
     "FileOperator",
     "FileStat",
     "InstructableResource",
     "LocalTmpFileOperator",
+    "OutputBuffer",
     "PathNotAllowedError",
     "Resource",
     "ResourceEntry",
@@ -63,6 +74,7 @@ __all__ = [
     "Shell",
     "ShellExecutionError",
     "ShellTimeoutError",
+    "StdinAdapter",
     "TmpFileOperator",
     "TruncatedResult",
     "generate_filetree",

@@ -7,9 +7,7 @@ that manage the lifecycle of shared resources.
 import asyncio
 from abc import ABC, abstractmethod
 from contextlib import AbstractAsyncContextManager
-from typing import Any
-
-from typing_extensions import Self
+from typing import Any, Self
 
 from y_agent_environment.exceptions import EnvironmentNotEnteredError
 from y_agent_environment.file_operator import FileOperator
